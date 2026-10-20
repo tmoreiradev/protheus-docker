@@ -11,13 +11,13 @@ BLUE, GREEN = "#58a6ff", "#3fb950"
 
 # caixas: nome -> (x, y, w, h, titulo, subtitulo, cor)
 NODES = {
-    "client": (20, 170, 150, 60, "Navegador", "SmartClient WebApp", "#8b949e"),
-    "app":    (230, 170, 170, 60, "AppServer", ":1234 · REST :8400", "#58a6ff"),
-    "dba":    (470, 170, 150, 60, "DBAccess", "dbaccesscfg", "#d29922"),
-    "lic":    (350, 30, 170, 60, "License Server", "SYS_RAWIO · /dev/mem", "#a371f7"),
-    "pg":     (720, 60, 160, 56, "PostgreSQL 16", "WIN1252 · C", "#4169e1"),
-    "ms":     (720, 172, 160, 56, "SQL Server 2022", "Latin1_General_BIN", "#cc2927"),
-    "or":     (720, 284, 160, 56, "Oracle 21c", "PDB · CURSOR_SHARING", "#f80000"),
+    "client": (20, 170, 150, 60, "Navegador", "onde o usuário acessa", "#8b949e"),
+    "app":    (230, 170, 170, 60, "AppServer", "executa o Protheus", "#58a6ff"),
+    "dba":    (470, 170, 150, 60, "DBAccess", "ponte com o banco", "#d29922"),
+    "lic":    (350, 30, 170, 60, "License Server", "controla as licenças", "#a371f7"),
+    "pg":     (720, 60, 160, 56, "PostgreSQL 16", "banco de dados", "#4169e1"),
+    "ms":     (720, 172, 160, 56, "SQL Server 2022", "banco de dados", "#cc2927"),
+    "or":     (720, 284, 160, 56, "Oracle 21c", "banco de dados", "#f80000"),
 }
 
 PATHS = {
