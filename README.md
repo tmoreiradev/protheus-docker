@@ -13,6 +13,7 @@ Feito para desenvolvimento, testes e homologação de customizações ADVPL/TLPP
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 ![SQL Server](https://img.shields.io/badge/SQL_Server-2022-CC2927?style=flat-square&logo=microsoftsqlserver&logoColor=white)
 ![Oracle](https://img.shields.io/badge/Oracle-21c-F80000?style=flat-square&logo=oracle&logoColor=white)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-3fb950?style=flat-square)](LICENSE)
 
 [Início rápido](#-início-rápido) ·
 [Primeiro acesso](#-primeiro-acesso-no-navegador) ·
@@ -35,16 +36,11 @@ Feito para desenvolvimento, testes e homologação de customizações ADVPL/TLPP
 
 ## 🏗️ Como funciona
 
-```mermaid
-graph LR
-    Browser["🌐 Navegador<br/>WebApp"] --> APP["AppServer<br/>WebApp :1234 · REST :8400"]
-    VSCode["💻 VSCode + TDS"] --> APP
-    APP --> DBA["DBAccess"]
-    DBA --> LIC["License Server"]
-    DBA --> DB[("PostgreSQL<br/>SQL Server<br/>ou Oracle")]
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="Animação do fluxo de uma requisição: o navegador chama o AppServer, que valida a licença no License Server e pede os dados ao DBAccess; o DBAccess também valida a licença, consulta o banco (PostgreSQL, SQL Server ou Oracle) e a resposta volta pelo mesmo caminho." width="100%" />
+</p>
 
-Cada peça roda no seu próprio container e elas se encontram pelo nome do serviço na rede do Docker, sem IP fixo.
+Cada peça roda no seu próprio container e elas se encontram pelo nome do serviço na rede do Docker, sem IP fixo. O VSCode (extensão TDS) se conecta ao mesmo AppServer, na porta `1234`, para compilar e depurar.
 Além do AppServer principal, existem **jobs temporários** que sobem, fazem uma tarefa e saem: compilar fontes, aplicar patches `.ptm`, atualizar dicionário (UPDDISTR) e rodar testes.
 
 ---
@@ -364,4 +360,4 @@ Separar vários fontes por `;`, `,` ou espaço não funciona, e `No programs are
 
 ---
 
-<sub>Projeto independente, sem vínculo com a TOTVS S.A. "TOTVS" e "Protheus" são marcas dos seus respectivos donos. Os binários do Protheus não são distribuídos aqui e exigem licença própria.</sub>
+<sub>Código sob a [licença MIT](LICENSE). Projeto independente, sem vínculo com a TOTVS S.A. "TOTVS" e "Protheus" são marcas dos seus respectivos donos. Os binários do Protheus não são distribuídos aqui e exigem licença própria.</sub>
