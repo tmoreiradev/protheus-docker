@@ -1,0 +1,58 @@
+#!/usr/bin/expect -f
+# Instalação não-assistida do TOTVS License Server Virtual (IzPack 5.2, modo console).
+#
+# Sequencial de propósito: cada expect aguarda o seu próprio prompt. Um único loop
+# com exp_continue dessincroniza — a resposta de um painel vaza para o prompt do
+# painel seguinte e a instalação vai parar no diretório errado.
+set timeout 60
+
+set DEST         [lindex $argv 0]
+set SERVICE_PORT [lindex $argv 1]
+set LOG_PORT     [lindex $argv 2]
+set LICENSE_PORT [lindex $argv 3]
+set SERVICE_NAME [lindex $argv 4]
+
+proc step {n what} { puts "\n@@@ PASSO $n: $what" }
+proc die {msg}     { puts "\n@@@ FALHA: $msg"; exit 1 }
+
+# O IzPack deixa um lock em /tmp; um resíduo faz o instalador abrir um prompt extra
+# ("outra cópia rodando?") que desloca todas as respostas.
+file delete {*}[glob -nocomplain /tmp/iz-*.tmp]
+
+spawn java -jar installer.jar
+
+step 1 "idioma";          expect "Input selection"                { send "0\r" }
+step 2 "boas-vindas";     expect -re "\\(1\\) continuar"          { send "1\r" }
+step 3 "licenca";         expect -re "\\(1\\) aceitar"            { send "1\r" }
+step 4 "caminho";         expect "caminho para instala"           { send "$DEST\r" }
+step 5 "confirma dir";    expect -re "\\(Ok\\), \\(C\\) Cancelar" { send "O\r" }
+step 6 "continuar";       expect -re "\\(1\\) continuar"          { send "1\r" }
+step 7 "tipo = install";  expect "Selecione: "                    { send "0\r" }
+step 8 "continuar";       expect -re "\\(1\\) continuar"          { send "1\r" }
+
+step 9 "pacotes (todos)"
+expect {
+    -re "\\(S\\) Sim, \\(N\\)" { send "S\r"; exp_continue }
+    "Done!"                    { }
+    timeout                    { die "painel de pacotes" }
+}
+
+step 10 "continuar";      expect -re "\\(1\\) continuar"          { send "1\r" }
+step 11 "info SXE/SXF";   expect -re "\\(1\\) continuar"          { send "1\r" }
+
+step 12 "SERVICE_PORT";   expect -re {\[[^\]]*\] }                { send "$SERVICE_PORT\r" }
+step 13 "LOG_PORT";       expect -re {\[[^\]]*\] }                { send "$LOG_PORT\r" }
+step 14 "LICENSE_PORT";   expect -re {\[[^\]]*\] }                { send "$LICENSE_PORT\r" }
+step 15 "SERVICE_NAME";   expect -re {\[[^\]]*\] }                { send "$SERVICE_NAME\r" }
+
+step 16 "proxy off + instalacao"
+set timeout 900
+expect {
+    -re "0 to deselect"        { send "0\r"; exp_continue }
+    -re "\\(S\\) Sim, \\(N\\)" { send "N\r"; exp_continue }
+    -re "\\(1\\) continuar"    { send "1\r"; exp_continue }
+    -re "abortada"             { die "instalacao abortada" }
+    -re "conclu"               { puts "\n@@@ INSTALACAO CONCLUIDA" }
+    timeout                    { die "timeout na instalacao" }
+    eof                        { }
+}

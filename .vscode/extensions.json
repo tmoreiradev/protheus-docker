@@ -1,0 +1,8 @@
+{
+	// Sugerida ao abrir o repositório. É a extensão que compila e depura contra
+	// o AppServer do container — ver a seção "Compilando e depurando pelo VSCode"
+	// no README.
+	"recommendations": [
+		"TOTVS.tds-vscode"
+	]
+}

@@ -1,0 +1,101 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Editor/IDE
+# .idea/
+.DS_Store
+
+# Do .vscode versionamos só o que serve a quem clona: o launcher de debug, a
+# extensão recomendada e as settings. O resto é cache da extensão TDS — inclusive
+# .advpl/, que ela regenera sozinha, e um eventual servers.json (guarda tokens).
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# --- TOTVS Artifacts & Binaries ---
+*.tar.gz
+*.zip
+*.tgz
+dbaccess/dbaccess.tar.gz
+
+# --- Environment & Secrets ---
+# Pega TODAS as variacoes que carregam segredo: `.env`, copias baixadas do navegador
+# (`.env (1)`), backups (`.env.bak.*`) e arquivos avulsos vindos por outro canal.
+# Os exemplos e os perfis por SGBD sao versionados e ficam de fora do ignore.
+.env*
+!.env.example
+!.env.mssql
+!.env.oracle
+!.env.postgres
+# Os .env.base.<nome> so carregam DB_NAME (qual banco do protheus_postgres o lab usa) —
+# nenhum segredo, e o ./run.sh base nao funciona sem eles. Base nova = uma linha nova aqui.
+!.env.base.dev
+!.env.base.lab
+!.env.base.lab2
+env.md
+
+# --- Docker Persistent Data ---
+.docker/
+
+# --- TOTVS RPO Repositories (Strict Deny) ---
+protheus/apo/tttm120.rpo
+protheus/apo/tlpp.rpo
+protheus/apo/custom.rpo
+
+# --- TOTVS Patches Deployment Queue ---
+protheus/patches/*
+!protheus/patches/.gitkeep
+
+# --- TOTVS Automated Migrator Outputs ---
+protheus/systemload/*.json
+protheus/systemload/*.txt
+protheus/systemload/*.jsondone
+protheus/systemload/*.jsonfail
+protheus/systemload/*.unq
+protheus/systemload/.systemload_boot_done
+# --- Includes descompactadas para o TDS/VSCode (uso local) ---
+protheus/includes/_extracted/
+appserver/generated/*
+!appserver/generated/.gitkeep
+
+# Saida da esteira de testes ProBat (./run.sh test) — artefato de execucao.
+# O JUnit XML e regerado a cada run; o CI consome do workspace, nunca do git.
+protheus/test-results/*
+!protheus/test-results/.gitkeep
+
+# --- Backups e artefatos de execucao (nunca versionados) ---
+# Backup de banco e RPO nao pertencem ao git — o repositorio
+# descreve COMO montar o ambiente, nao carrega o estado dele.
+backups/
+sf20101.sdb
+protheus/apo/*.json
+
+
+# Um core por base (2026-10-05): lab escolhido pelo ./run.sh base e espelhos dos .ini
+# dos outros cores (appserver/generated ja e ignorado acima).
+.lab-current
+appserver/generated-*/

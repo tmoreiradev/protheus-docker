@@ -1,0 +1,608 @@
+networks:
+  protheus_network:
+    name: protheus_network
+    driver: bridge
+
+services:
+  # ----------------------------------------------------------------------------
+  # INFRA & CONNECTIVITY TIER (Sempre iniciados)
+  # ----------------------------------------------------------------------------
+  license_server:
+    build:
+      context: ./license_server
+      args:
+        # A porta de licenciamento é gravada no .ini do License Server durante o
+        # build, então precisa vir do mesmo .env que dbAccess e AppServer leem.
+        LICENSE_PORT: ${LICENSE_SERVER_PORT}
+    container_name: protheus_license
+    networks:
+      - protheus_network
+    ports:
+      - "${LICENSE_SERVER_PORT}:${LICENSE_SERVER_PORT}"
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # Só é considerado pronto quando a porta de licenciamento aceita conexão.
+    # É isso que o dbAccess espera — `depends_on` sozinho apenas garante que o
+    # container iniciou, e o License leva alguns segundos até passar a atender.
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost ${LICENSE_SERVER_PORT} || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 15s
+    restart: always
+
+  # Um License Server POR CORE (2026-10-05). O LS Virtual roda em modo base de teste, offline,
+  # com um pool fixo de licencas que o ProBat esgota (uma thread por fixture, sem devolver ate
+  # um recreate). Com um LS so, o ProBat de um lab derruba quem esta logado no outro com
+  # "-20 Excedeu numero de licencas". Um container da mesma imagem por lab = um pool por lab
+  # (medido 05/10/2026: dois LS lado a lado funcionam, dbAccess e WebApp). O `license_server`
+  # acima continua sendo o do lab principal e do dbaccess; estes dois sao so dos outros cores,
+  # e sobem/param junto com eles pelo `./run.sh base`.
+  license_server_lab2:
+    build:
+      context: ./license_server
+      args:
+        LICENSE_PORT: ${LICENSE_SERVER_PORT}
+    container_name: protheus_license_lab2
+    networks:
+      - protheus_network
+    ports:
+      - "127.0.0.1:5557:${LICENSE_SERVER_PORT}"
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost ${LICENSE_SERVER_PORT} || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 15s
+    restart: always
+
+  license_server_dev:
+    build:
+      context: ./license_server
+      args:
+        LICENSE_PORT: ${LICENSE_SERVER_PORT}
+    container_name: protheus_license_dev
+    profiles:
+      - dev
+    networks:
+      - protheus_network
+    ports:
+      - "127.0.0.1:5558:${LICENSE_SERVER_PORT}"
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost ${LICENSE_SERVER_PORT} || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 15s
+    restart: always
+
+  postgres_db:
+    build: ./databases/postgres
+    container_name: protheus_postgres
+    profiles:
+      - postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_ROOT_USER:-}
+      - POSTGRES_PASSWORD=${POSTGRES_ROOT_PASSWORD:-}
+      - POSTGRES_DB=${POSTGRES_ROOT_USER:-}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - POSTGRES_INITDB_ARGS=--data-checksums -c shared_buffers=512MB -c synchronous_commit=off
+    ports:
+      - "${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - protheus_network
+    restart: always
+
+  mssql_db:
+    build: ./databases/mssql
+    container_name: protheus_mssql
+    profiles:
+      - mssql
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+    ports:
+      - "${MSSQL_PORT:-1433}:${MSSQL_PORT:-1433}"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    networks:
+      - protheus_network
+    restart: always
+
+  oracle_db:
+    build: ./databases/oracle
+    container_name: protheus_oracle
+    profiles:
+      - oracle
+    environment:
+      - ORACLE_PWD=${ORACLE_ROOT_PASSWORD:-}
+      - ORACLE_CHARACTERSET=WE8MSWIN1252
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+    ports:
+      - "${ORACLE_PORT:-1521}:${ORACLE_PORT:-1521}"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    networks:
+      - protheus_network
+    restart: always
+
+  dbaccess:
+    build: ./dbaccess
+    container_name: protheus_dbaccess
+    networks:
+      protheus_network:
+        aliases:
+          - protheus_dbaccess # <-- Garante que o contêiner seja encontrado por este nome exato na rede
+    env_file:
+      - .env
+      - .env.${SGBD}
+    environment:
+      - DB_TYPE=${DB_TYPE}
+      - DB_SERVER=${DB_SERVER}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      # Um core por base (2026-10-05): o gateway registra TODOS os aliases de uma vez
+      # (uma secao [POSTGRES/<alias>] por base, environments= com a lista). Cada core
+      # escolhe o seu pelo DBAlias. Trocar de base nao recria mais o dbaccess.
+      - DB_NAMES=${LAB_BASES:-protheus_lab,protheus_lab2,protheus_dev}
+      - DB_SERVICE_NAME=${DB_SERVICE_NAME:-}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - LICENSE_SERVER_HOST=${LICENSE_SERVER}
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+    ports:
+      - "${DBACCESS_PORT}:${DBACCESS_PORT}"
+    # O dbAccess registra suas conexões contra o License Server, então só faz
+    # sentido subir depois que ele estiver atendendo de fato.
+    depends_on:
+      license_server:
+        condition: service_healthy
+    # Pronto quando a porta do gateway aceita conexão. O entrypoint ainda espera
+    # o SGBD responder antes de subir o binário, então o healthcheck só passa
+    # quando dbAccess E banco estão de pé — é essa condição que o AppServer espera.
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost ${DBACCESS_PORT} || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 15s
+    restart: always
+
+  # ----------------------------------------------------------------------------
+  # APPLICATION TIER: TOTVS APPSERVER CORE — UM CORE POR BASE (desde 2026-10-05)
+  # Serve o WebApp/SmartClient na porta multiprotocolo e a API REST numa porta
+  # HTTP dedicada. Não há AppServer REST separado.
+  #
+  # Cada base do protheus_postgres tem o SEU core, sempre com a mesma base
+  # (DB_NAME fixo aqui, nao no .env): appserver_core = lab (1234),
+  # appserver_core_lab2 = lab2 (1236), appserver_core_dev = dev (1237,
+  # profile `dev`, desligado por padrao). Todos compartilham o RPO (./protheus/apo)
+  # e o dbaccess (que conhece todos os aliases); cada um tem o PROPRIO License Server
+  # (pool de licencas isolado, ver os servicos license_server_*) e os proprios
+  # volumes system/data/log (semaforos .lck por empresa, error.log,
+  # resultsprobat.xml e o log do console colidiriam num volume unico) e o proprio
+  # espelho ./appserver/generated*. O `./run.sh base <nome>` so escolhe qual core
+  # os jobs e o test-local.sh usam; nao recria nada. Lab ocioso = `stop` do core.
+  # ----------------------------------------------------------------------------
+  appserver_core:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_core
+    networks:
+      - protheus_network
+    ports:
+      - "${CORE_PORT_MULTI}:${CORE_PORT_MULTI}"
+      - "${APP_MONITOR_PORT}:${APP_MONITOR_PORT}"
+      - "${REST_HTTP_PORT}:${REST_HTTP_PORT}"
+      # Alias de host para o REST (container 8400) — os frontends dashcenter/monitor
+      # apontam o proxy.conf.json para :8080. Mesmo REST/RPO da 8400.
+      - "8080:${REST_HTTP_PORT}"
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=protheus_lab
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=${LICENSE_SERVER}
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - APP_PORT_MULTI=${CORE_PORT_MULTI}
+      - APP_MONITOR_PORT=${APP_MONITOR_PORT}
+      - REST_HTTP_PORT=${REST_HTTP_PORT}
+      - REST_URI=${REST_URI}
+      - REST_PREP_ENV=${REST_PREP_ENV}
+      - REST_INSTANCES=${REST_INSTANCES}
+      - CUSTOM_RPO_NAME=${CUSTOM_RPO_NAME:-custom}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      - protheus_system:/totvs/protheus/system
+      - protheus_systemload:/totvs/protheus/systemload
+      - protheus_data:/totvs/protheus/data
+      - protheus_log:/totvs/protheus/log
+      # Ponto de extensão do appserver.ini (mesclado no boot pelo entrypoint).
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      # Espelho de leitura: o .ini FINAL de cada papel, exportado a cada boot.
+      - ./appserver/generated:/totvs/protheus/generated
+      - ./protheus/system:/tmp/source_system:ro
+      - ./protheus/systemload:/tmp/source_systemload:ro
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # service_healthy, e não apenas service_started: o socket do dbAccess demora
+    # a atender, e um AppServer que suba antes disso morre tentando conectar.
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+    restart: always
+    command: ["core"]
+
+  # Core da lab2 (exemplo de segunda base).
+  # Mesma imagem, mesmo RPO, mesmo dbaccess; so muda DBAlias, portas e volumes.
+  appserver_core_lab2:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_core_lab2
+    networks:
+      - protheus_network
+    ports:
+      - "127.0.0.1:1236:${CORE_PORT_MULTI}"
+      - "127.0.0.1:32035:${APP_MONITOR_PORT}"
+      - "127.0.0.1:8402:${REST_HTTP_PORT}"
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=protheus_lab2
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=protheus_license_lab2
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - APP_PORT_MULTI=${CORE_PORT_MULTI}
+      - APP_MONITOR_PORT=${APP_MONITOR_PORT}
+      - REST_HTTP_PORT=${REST_HTTP_PORT}
+      - REST_URI=${REST_URI}
+      - REST_PREP_ENV=${REST_PREP_ENV}
+      - REST_INSTANCES=${REST_INSTANCES}
+      - CUSTOM_RPO_NAME=${CUSTOM_RPO_NAME:-custom}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      - protheus_system_lab2:/totvs/protheus/system
+      - protheus_systemload:/totvs/protheus/systemload
+      - protheus_data_lab2:/totvs/protheus/data
+      - protheus_log_lab2:/totvs/protheus/log
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      - ./appserver/generated-lab2:/totvs/protheus/generated
+      - ./protheus/system:/tmp/source_system:ro
+      - ./protheus/systemload:/tmp/source_systemload:ro
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+      license_server_lab2:
+        condition: service_healthy
+    restart: always
+    command: ["core"]
+
+  # Core da base historica (protheus_dev). Profile `dev`: so sobe quando pedido
+  # (`./run.sh base dev`), porque essa base quase nao e usada.
+  appserver_core_dev:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_core_dev
+    profiles:
+      - dev
+    networks:
+      - protheus_network
+    ports:
+      - "127.0.0.1:1237:${CORE_PORT_MULTI}"
+      - "127.0.0.1:32036:${APP_MONITOR_PORT}"
+      - "127.0.0.1:8403:${REST_HTTP_PORT}"
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=protheus_dev
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=protheus_license_dev
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - APP_PORT_MULTI=${CORE_PORT_MULTI}
+      - APP_MONITOR_PORT=${APP_MONITOR_PORT}
+      - REST_HTTP_PORT=${REST_HTTP_PORT}
+      - REST_URI=${REST_URI}
+      - REST_PREP_ENV=${REST_PREP_ENV}
+      - REST_INSTANCES=${REST_INSTANCES}
+      - CUSTOM_RPO_NAME=${CUSTOM_RPO_NAME:-custom}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      - protheus_system_dev:/totvs/protheus/system
+      - protheus_systemload:/totvs/protheus/systemload
+      - protheus_data_dev:/totvs/protheus/data
+      - protheus_log_dev:/totvs/protheus/log
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      - ./appserver/generated-dev:/totvs/protheus/generated
+      - ./protheus/system:/tmp/source_system:ro
+      - ./protheus/systemload:/tmp/source_systemload:ro
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+      license_server_dev:
+        condition: service_healthy
+    restart: always
+    command: ["core"]
+
+  # ----------------------------------------------------------------------------
+  # APPLICATION TIER: AUTOMATED DEPLOY WORKER (MODO JOB CLI EFÊMERO)
+  # ----------------------------------------------------------------------------
+  appserver_worker:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_worker
+    profiles:
+      - worker
+    networks:
+      - protheus_network
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=${DB_NAME}
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=${LICENSE_SERVER}
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - CUSTOM_RPO_NAME=${CUSTOM_RPO_NAME:-custom}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      # Volumes do lab ATUAL (./run.sh base): o run.sh exporta LAB_SYSTEM_VOL/LAB_LOG_VOL.
+      - ${LAB_SYSTEM_VOL:-protheus_system}:/totvs/protheus/system
+      - ${LAB_LOG_VOL:-protheus_log}:/totvs/protheus/log
+      # Ponto de extensão do appserver.ini (mesclado no boot pelo entrypoint).
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      # Espelho de leitura: o .ini FINAL de cada papel, exportado a cada boot.
+      - ./appserver/generated:/totvs/protheus/generated
+      - ./protheus/patches:/totvs/protheus/patches_queue
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+    command: ["worker"]
+  # ----------------------------------------------------------------------------
+  # APPLICATION TIER: AUTOMATED DICTIONARY MIGRATOR (UPDDISTR JOB)
+  # ----------------------------------------------------------------------------
+  appserver_upddistr:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_upddistr
+    profiles:
+      - upddistr
+    networks:
+      - protheus_network
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=${DB_NAME}
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=${LICENSE_SERVER}
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - RPO_CUSTOM_NAME=${RPO_CUSTOM_NAME:-custom}
+      # Parâmetros customizáveis para a carga do UPDDISTR
+      - UPD_USER=${UPD_USER:-admin}
+      # `-` em vez de `:-`: numa base virgem a senha do admin é em branco, e o
+      # `:-` trata string vazia como indefinida, tornando impossível expressá-la.
+      - UPD_PASSWORD=${UPD_PASSWORD-senha}
+      - UPD_SIMULACAO=${UPD_SIMULACAO:-false}
+      # Sem aspas: o entrypoint.sh já envolve o valor em aspas ao montar o
+      # upddistr_param.json. Com elas, o JSON sai como [""99""] e o UPDDISTR
+      # rejeita o arquivo inteiro ("Arquivo de configuração inválido").
+      - UPD_EMPRESAS=${UPD_EMPRESAS:-99}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      # Volumes do lab ATUAL (./run.sh base): o run.sh exporta LAB_SYSTEM_VOL/LAB_LOG_VOL.
+      - ${LAB_SYSTEM_VOL:-protheus_system}:/totvs/protheus/system
+      - ${LAB_LOG_VOL:-protheus_log}:/totvs/protheus/log
+      # Ponto de extensão do appserver.ini (mesclado no boot pelo entrypoint).
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      # Espelho de leitura: o .ini FINAL de cada papel, exportado a cada boot.
+      - ./appserver/generated:/totvs/protheus/generated
+      # Bind, e não o volume nomeado: o run.sh lê o Result.json do host.
+      - ./protheus/systemload:/totvs/protheus/systemload
+      # O UPDDISTR precisa dos dicionários EXTRAÍDOS (SDFBRA.TXT e cia), não dos
+      # zips. Quem extrai é o entrypoint, e ele lê de /tmp/source_systemload —
+      # sem esta montagem ele não acha os zips, marca a flag anti-loop e o job
+      # morre com "File \systemload\SDFBRA.TXT not found".
+      - ./protheus/systemload:/tmp/source_systemload:ro
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+    command: ["upddistr"]
+  # ----------------------------------------------------------------------------
+  # APPLICATION TIER: GITOPS ADVPL/TLPP CODE COMPILER LAYER
+  # ----------------------------------------------------------------------------
+  appserver_compiler:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_compiler
+    profiles:
+      - compile
+    networks:
+      - protheus_network
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=${DB_NAME}
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=${LICENSE_SERVER}
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - RPO_CUSTOM_NAME=${RPO_CUSTOM_NAME:-custom}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      # Volumes do lab ATUAL (./run.sh base): o run.sh exporta LAB_SYSTEM_VOL/LAB_LOG_VOL.
+      - ${LAB_SYSTEM_VOL:-protheus_system}:/totvs/protheus/system
+      - ${LAB_LOG_VOL:-protheus_log}:/totvs/protheus/log
+      # Ponto de extensão do appserver.ini (mesclado no boot pelo entrypoint).
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      # Espelho de leitura: o .ini FINAL de cada papel, exportado a cada boot.
+      - ./appserver/generated:/totvs/protheus/generated
+      - ./protheus/patches:/totvs/protheus/patches_queue # <-- MAPEADO PARA A FILA DE ENTRADA
+      # 🔥 ADICIONE OS DIRETÓRIOS DE INCLUDES PERMANENTES AQUI:
+      - ./protheus/includes/advpl:/totvs/protheus/includes/advpl
+      - ./protheus/includes/tlpp:/totvs/protheus/includes/tlpp
+      - ./protheus/includes/custom:/totvs/protheus/includes/custom
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+    command: ["compile"]
+
+  # ----------------------------------------------------------------------------
+  # ESTEIRA DE TESTES (ProBat) — job efemero, espelha o appserver_compiler
+  #
+  # Roda `tlpp.probat.run` contra o RPO e exporta JUnit XML em ./protheus/test-results.
+  # Nao precisa de patch da TOTVS (o ADVPR precisa) nem de servidor REST.
+  #
+  # Diferenca relevante para o compile: o teste EXECUTA codigo, entao depende do
+  # banco de pe — por isso o depends_on inclui o dbaccess saudavel, igual aos demais.
+  # ----------------------------------------------------------------------------
+  appserver_test:
+    build:
+      context: .
+      dockerfile: ./appserver/Dockerfile
+    container_name: protheus_test
+    profiles:
+      - test
+    networks:
+      - protheus_network
+    environment:
+      - ENV_NAME=${ENV_NAME}
+      - DB_NAME=${DB_NAME}
+      - DB_TYPE=${DB_TYPE}
+      - DBACCESS_PORT=${DBACCESS_PORT}
+      - DBACCESS_SERVER=${DBACCESS_SERVER}
+      - LICENSE_SERVER=${LICENSE_SERVER}
+      - LICENSE_SERVER_PORT=${LICENSE_SERVER_PORT}
+      - RPO_CUSTOM_NAME=${RPO_CUSTOM_NAME:-custom}
+      # Vazio = roda TODAS as suites com @TestFixture no RPO.
+      # Preencha para restringir: PROBAT_SUITE=minha_suite
+      - PROBAT_SUITE=${PROBAT_SUITE:-}
+      # Funcao de entrada do -run=. Padrao: o runner do proprio ProBat. Troque por um
+      # launcher seu (ex.: U_MEUPROB) que prepare o ambiente (RpcSetEnv) antes da suite.
+      - PROBAT_ENTRY=${PROBAT_ENTRY:-tlpp.probat.run}
+    volumes:
+      - ./protheus/apo:/totvs/protheus/apo
+      # Volumes do lab ATUAL (./run.sh base): o run.sh exporta LAB_SYSTEM_VOL/LAB_LOG_VOL.
+      - ${LAB_SYSTEM_VOL:-protheus_system}:/totvs/protheus/system
+      - ${LAB_LOG_VOL:-protheus_log}:/totvs/protheus/log
+      - ./appserver/appserver.custom.ini:/tmp/appserver.custom.ini:ro
+      - ./appserver/generated:/totvs/protheus/generated
+      # Saida: o JUnit XML sai do container para o host, para o CI consumir.
+      - ./protheus/test-results:/totvs/protheus/test-results
+    cap_add:
+      - SYS_RAWIO
+    devices:
+      - "/dev/mem:/dev/mem"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      dbaccess:
+        condition: service_healthy
+    command: ["test"]
+
+# ----------------------------------------------------------------------------
+# PERSISTENT DATA TIERS (Bloco Restaurado Definitivamente)
+# ----------------------------------------------------------------------------
+volumes:
+  pg_data:
+  mssql_data:
+  oracle_data:
+  protheus_system:
+  protheus_systemload:
+  protheus_data:
+  protheus_log:
+  # Um core por base: volumes proprios da lab2 e da dev (semeados pelo run.sh
+  # a partir dos do lab principal na primeira subida).
+  protheus_system_lab2:
+  protheus_data_lab2:
+  protheus_log_lab2:
+  protheus_system_dev:
+  protheus_data_dev:
+  protheus_log_dev:

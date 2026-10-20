@@ -1,0 +1,29 @@
+{
+	// Debug do TDS/VSCode contra o AppServer em container (localhost:1234).
+	//
+	// Usamos totvs_language_web_debug (SmartClient WebApp, roda no navegador) e
+	// NÃO totvs_language_debug (SmartClient Desktop), que exige um binário local
+	// — o launcher anterior apontava para um smartclient.exe, inexistente no mac.
+	//
+	// A URL do WebApp não é declarada: a extensão a monta a partir do servidor
+	// conectado (address:port). Isso só funciona porque aqui o WebApp e a porta
+	// multiprotocolo são a MESMA porta (1234). Se um dia forem separadas, será
+	// preciso informar "smartclientUrl" à mão.
+	//
+	// Safari não é suportado pela extensão. Use Chrome/Edge.
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "totvs_language_web_debug",
+			"request": "launch",
+			"name": "TOTVS Language Debug (WebApp)",
+			"program": "${command:AskForProgramName}",
+			"cwb": "${workspaceFolder}",
+			"isMultiSession": true,
+			"enableTableSync": true,
+			// Necessário para depurar rotinas PO UI e código que roda em JOB
+			// (o REST do core sobe pelo [ONSTART], em thread separada).
+			"enableMultiThread": true
+		}
+	]
+}
