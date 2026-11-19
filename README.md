@@ -19,7 +19,8 @@ Feito para desenvolvimento, testes e homologação de customizações ADVPL/TLPP
 [Primeiro acesso](#-primeiro-acesso-no-navegador) ·
 [Comandos](#-comandos-do-dia-a-dia) ·
 [VSCode](#-desenvolvendo-no-vscode) ·
-[Problemas comuns](#-problemas-comuns)
+[Problemas comuns](#-problemas-comuns) ·
+[Dúvidas](#-dúvidas-e-ideias)
 
 </div>
 
@@ -357,6 +358,14 @@ Separar vários fontes por `;`, `,` ou espaço não funciona, e `No programs are
 - [ ] Workflow do GitHub Actions com runner próprio chamando `./run.sh compile` (o comando já devolve o código de saída que o CI precisa).
 - [ ] Análise estática como verificação obrigatória do pull request.
 - [ ] Resultado da compilação comentado automaticamente no pull request.
+
+---
+
+## 💬 Dúvidas e ideias
+
+Dúvida de uso, erro de ambiente ou ideia de melhoria: abre uma **[discussion](https://github.com/tmoreiradev/protheus-docker/discussions)**. A categoria **Q&A** existe para isso e as respostas ficam buscáveis, diferente do chat.
+
+Se o projeto te poupou montar uma VM (ou te ajudou a sair dela), deixa uma ⭐ no topo: é o sinal que faz outra pessoa do time TOTVS encontrar isso.
 
 ---
 
